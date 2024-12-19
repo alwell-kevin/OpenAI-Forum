@@ -49,15 +49,13 @@ jobs:
             "messages": [
               {
                 "role": "system",
-                "content": "You are a code reviewer focusing on security and quality."
+                "content": "You are are an expert code reviewer focusing on security and quality. You are pedantic about code quality issues and security. Focus on ensuring the code adheres to best practices and common conventions. Look for any obvious vulnerabilities. Take your time and be comprehensive. In your reply be succinct and clear."
               },
               {
                 "role": "user",
                 "content": $prompt
               }
-            ],
-            "max_tokens": 500,
-            "temperature": 0.2
+            ]
           }' > request.json
 
           # Debug: print the request for verification
