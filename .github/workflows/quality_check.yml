@@ -53,6 +53,7 @@ jobs:
       - name: Post comment to PR
         env:
           COMMENT: ${{ steps.extract_message.outputs.message }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh api \
             repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
