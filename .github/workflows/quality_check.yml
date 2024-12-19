@@ -29,7 +29,29 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          PROMPT=$(echo "Please review the following code changes for any obvious quality or security issues. Provide a brief report:\n\n$(cat diff.txt)" | sed 's/"/\\"/g')
+          PROMPT=$(echo "Please review the following code changes for any obvious quality or security issues. Provide a brief report:\n\n$(cat diff.txt)")
+          
+          # Use jq to construct the JSON request body safely
+          jq -n --arg prompt "$PROMPT" '{
+            "model": "gpt-3.5-turbo",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a code reviewer focusing on security and quality."
+              },
+              {
+                "role": "user",
+                "content": $prompt
+              }
+            ],
+            "max_tokens": 500,
+            "temperature": 0.2
+          }' > request.json
+
+          # Debug: print the request
+          cat request.json
+
+          # Send the request
           curl https://api.openai.com/v1/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
