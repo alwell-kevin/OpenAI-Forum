@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebRTC Landing Page</title>
+  <!-- Load Bootstrap CSS (via CDN for simplicity) -->
+  <link 
+    rel="stylesheet"
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+  />
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      margin: 0;
+      justify-content: center;
+      align-items: center;
+      background: #f8f9fa;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 1.25rem;
+      font-weight: 500;
+    }
+    #agent-icon {
+      margin-top: 20px;
+      width: 100px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container text-center">
+    <h1 class="mb-4">Connect to Live Agent</h1>
+    <button id="connectBtn" class="btn btn-primary btn-lg">Connect</button>
+    <div id="status" class="text-success"></div>
+    <img id="agent-icon" src="https://via.placeholder.com/100?text=Agent" alt="Agent Icon" />
+  </div>
+
+  <script>
+    async function init() {
+      try {
+        // Get an ephemeral key from your server
+        const tokenResponse = await fetch("http://localhost:3000/session", { mode: "cors" });
+        const data = await tokenResponse.json();
+        const EPHEMERAL_KEY = data.client_secret.value;
+
+        // Create a peer connection
+        const pc = new RTCPeerConnection();
+
+        // Set up to play remote audio from the model
+        const audioEl = document.createElement("audio");
+        audioEl.autoplay = true;
+        pc.ontrack = e => audioEl.srcObject = e.streams[0];
+
+        // Add local audio track for microphone input in the browser
+        const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pc.addTrack(ms.getTracks()[0]);
+
+        // Set up data channel for sending and receiving events
+        const dc = pc.createDataChannel("oai-events");
+        dc.addEventListener("message", (e) => {
+          // Realtime server events appear here!
+          console.log("DataChannel Message:", e.data);
+        });
+
+        // Start the session using the Session Description Protocol (SDP)
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const baseUrl = "https://api.openai.com/v1/realtime";
+        const model = "gpt-4o-realtime-preview-2024-12-17";
+        const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+          mode: "cors",
+          method: "POST",
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${EPHEMERAL_KEY}`,
+            "Content-Type": "application/sdp"
+          },
+        });
+
+        const answer = {
+          type: "answer",
+          sdp: await sdpResponse.text(),
+        };
+        await pc.setRemoteDescription(answer);
+
+        // Once connection is established, update UI
+        document.getElementById('status').textContent = "Connection Successful";
+        document.getElementById('agent-icon').style.display = "block";
+      } catch (error) {
+        console.error("Error establishing connection:", error);
+      }
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', () => {
+      init();
+    });
+  </script>
+</body>
+</html>
