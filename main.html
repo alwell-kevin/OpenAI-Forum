@@ -1,0 +1,39 @@
+<!-- HTML template that loads WebRTC logic in footer -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebRTC Example</title>
+</head>
+<body>
+    <!-- Your page content goes here -->
+
+    <h1>WebRTC Example</h1>
+    <p>This is a simple example of how to use WebRTC to create a real-time audio connection between a client and a server.</p>
+
+    <button onclick="init()">Start</button>
+
+
+    <!-- Load WebRTC logic in footer -->
+    <script src="./webRTCLogic.js"></script>
+    <script>
+        // Initialize your WebRTC logic here
+        const pc = new RTCPeerConnection();
+
+        // Add WebRTC event handlers
+        pc.onicecandidate = event => {
+            if (event.candidate) {
+                // Send the candidate to the remote peer
+            }
+        };
+
+        pc.ontrack = event => {
+            const remoteStream = event.streams[0];
+            // Attach the remote stream to a video element
+        };
+
+        // More WebRTC setup code as needed
+    </script>
+</body>
+</html>
