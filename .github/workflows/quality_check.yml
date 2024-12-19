@@ -45,7 +45,7 @@ jobs:
 
           # Construct the request body using jq to ensure valid JSON formatting
           jq -n --arg prompt "$PROMPT" '{
-            "model": "gpt-3.5-turbo",
+            "model": "o1",
             "messages": [
               {
                 "role": "system",
