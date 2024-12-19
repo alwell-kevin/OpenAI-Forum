@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Customer Service Live Chat</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f5f7f9;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column; 
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+    color: #333;
+    margin-bottom: 1rem;
+  }
+
+  p {
+    font-size: 1rem;
+    color: #555;
+    margin-bottom: 2rem;
+    text-align: center;
+    max-width: 400px;
+    line-height: 1.5;
+  }
+
+  .chat-button {
+    background: #0078d4;
+    color: #fff;
+    font-size: 1rem;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 120, 212, 0.3);
+    transition: background 0.3s ease;
+  }
+
+  .chat-button:hover {
+    background: #005ea5;
+  }
+
+  .chat-button:active {
+    background: #004b85;
+  }
+
+  .chat-button:focus {
+    outline: 2px solid #005ea5;
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+  <h1>Welcome to Our Support Center</h1>
+  <p>Click below to start a live chat session with one of our friendly customer service agents. We’re here to help!</p>
+  <button class="chat-button" onclick="init()">Start Live Chat</button>
+
+  <script>
+    async function init() {
+      // Get an ephemeral key from your server - see server code below
+      const tokenResponse = await fetch("http://localhost:3000/session", {mode: "cors"});
+      const data = await tokenResponse.json();
+      const EPHEMERAL_KEY = data.client_secret.value;
+
+      // Create a peer connection
+      const pc = new RTCPeerConnection();
+
+      // Set up to play remote audio from the model
+      const audioEl = document.createElement("audio");
+      audioEl.autoplay = true;
+      pc.ontrack = e => audioEl.srcObject = e.streams[0];
+
+      // Add local audio track for microphone input in the browser
+      const ms = await navigator.mediaDevices.getUserMedia({
+        audio: true
+      });
+      pc.addTrack(ms.getTracks()[0]);
+
+      // Set up data channel for sending and receiving events
+      const dc = pc.createDataChannel("oai-events");
+      dc.addEventListener("message", (e) => {
+        // Realtime server events appear here!
+        console.log(e);
+      });
+
+      // Start the session using the Session Description Protocol (SDP)
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const baseUrl = "https://api.openai.com/v1/realtime";
+      const model = "gpt-4o-realtime-preview-2024-12-17";
+      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${EPHEMERAL_KEY}`,
+          "Content-Type": "application/sdp"
+        },
+      });
+
+      const answer = {
+        type: "answer",
+        sdp: await sdpResponse.text(),
+      };
+      await pc.setRemoteDescription(answer);
+
+      document.body.appendChild(audioEl);
+    }
+  </script>
+</body>
+</html>
