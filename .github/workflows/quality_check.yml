@@ -34,27 +34,37 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
             -d '{
-              "model": "gpt-4",
+              "model": "o1",
               "messages": [
-                {"role": "system", "content": "You are a code reviewer focusing on security and quality."},
+                {"role": "system", "content": "You are a code reviewer focusing on security and quality. Provide a review of the attached code diff and highlight key areas of improvement."},
                 {"role": "user", "content": "'"$PROMPT"'"}
               ],
               "max_tokens": 500,
               "temperature": 0.2
             }' > response.json
 
+      - name: Debug OpenAI Response
+        run: cat response.json
+
       - name: Extract Review Message
         id: extract_message
         run: |
           # Extract the assistant's response content from the JSON
           ASSISTANT_MSG=$(jq -r '.choices[0].message.content' response.json)
+          echo "Extracted message: $ASSISTANT_MSG"
           echo "message=$ASSISTANT_MSG" >> $GITHUB_OUTPUT
 
       - name: Post comment to PR
+        if: always()
         env:
           COMMENT: ${{ steps.extract_message.outputs.message }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Ensure COMMENT is not empty before posting
+          if [ -z "$COMMENT" ] || [ "$COMMENT" = "null" ]; then
+            echo "No valid comment extracted. Skipping comment post."
+            exit 0
+          fi
           gh api \
             repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -f body="$COMMENT"
