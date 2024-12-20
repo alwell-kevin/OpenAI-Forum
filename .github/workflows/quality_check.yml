@@ -17,6 +17,27 @@ jobs:
         with:
           fetch-depth: 0  # Ensures we have both PR base and head for a proper diff
 
+      - name: Gather Full Code From Changed Files
+        run: |
+          # List changed files from origin/main to HEAD
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+          # Build a JSON object containing the original files
+          echo '{"original files": [' > original_files_temp.json
+          for file in $CHANGED_FILES; do
+            # If the file still exists (hasn't been deleted/renamed), capture its contents
+            if [ -f "$file" ]; then
+              CONTENT=$(jq -Rs . < "$file")
+              echo "{\"filename\": \"$file\", \"content\": $CONTENT}," >> original_files_temp.json
+            fi
+          done
+          # Remove the trailing comma from the last file entry
+          sed -i '$ s/,$//' original_files_temp.json
+          echo "]}" >> original_files_temp.json
+
+          # We will merge this JSON with diff.json later after we create diff.json
+          # So we temporarily store it here. We'll merge after "Get Diff" is performed.
+      
       - name: Get Diff
         run: |
           # Extract the diff from origin/main to HEAD.
@@ -29,6 +50,12 @@ jobs:
           # Convert these changes into a JSON object so we can safely parse it and insert into our prompt.
           jq -Rs '{diff: .}' code_changes_only.txt > diff.json
 
+          # Merge the newly created diff.json with our original_files_temp.json to consolidate them.
+          if [ -f original_files_temp.json ]; then
+            jq -s '.[0] * .[1]' diff.json original_files_temp.json > combined.json
+            mv combined.json diff.json
+          fi
+
       - name: Display Processed Diff (Debug)
         # Optional debug step to view the diff content as JSON
         run: cat diff.json
@@ -39,9 +66,10 @@ jobs:
         run: |
           # Extract the diff from diff.json
           DIFF_CONTENT=$(jq -r '.diff' diff.json)
+          ORIGINAL_FILES=$(jq -r '.["original files"]' diff.json)
 
           # Construct the prompt to instruct the model
-          PROMPT="Please review the following code changes for any obvious quality or security issues. Provide a brief report:\n\n${DIFF_CONTENT}"
+          PROMPT="Please review the following code changes for any obvious quality or security issues. Provide a brief report:\n\nDIFF:\n${DIFF_CONTENT}\n\nORIGINAL FILES:\n${ORIGINAL_FILES}"
 
           # Construct the request body using jq to ensure valid JSON formatting
           jq -n --arg prompt "$PROMPT" '{
@@ -50,7 +78,46 @@ jobs:
             "messages": [
               {
                 "role": "system",
-                "content": "You are are an expert code reviewer focusing on security and quality. You are pedantic about code quality issues and security. Focus on ensuring the code adheres to best practices and common conventions. Look for any obvious vulnerabilities. Take your time and be comprehensive. In your reply be succinct and clear."
+                "content": "
+                  You are an expert code reviewer specializing in security, quality, and adherence to best practices. Your goal is to methodically analyze the provided code to ensure it meets the highest standards. Approach the review in a structured, step-by-step manner:
+                    1.	Code Quality & Standards:
+                    •	Validate that the code follows established coding standards, style guides, and naming conventions.
+                    •	Check for consistent formatting, clear variable and function names, logical code organization, and adherence to language-specific best practices.
+                    2.	Security & Vulnerability Analysis:
+                    •	Inspect each code block for common vulnerabilities, including but not limited to:
+                    •	SQL injection
+                    •	Cross-Site Scripting (XSS)
+                    •	Command injection
+                    •	Insecure cryptographic operations
+                    ���	Verify robust input validation, proper output encoding, principle of least privilege in permissions, and the safe handling of sensitive data.
+                    •	Identify any libraries or functions known to be insecure, and recommend safer alternatives.
+                    3.	Fault Tolerance & Error Handling:
+                    •	Confirm the code gracefully handles errors, exceptions, and unexpected inputs.
+                    •	Check if proper try/catch blocks or equivalent mechanisms are in place.
+                    •	Ensure that sensitive error details are not exposed to end users.
+                    4.	Performance & Resource Management:
+                    •	Evaluate the code for potential performance bottlenecks, unnecessary computations, or inefficient resource usage.
+                    •	Suggest improvements to enhance efficiency without compromising readability or security.
+                    5.	Step-by-Step Validation:
+                    •	Examine the code incrementally, line by line or function by function.
+                    •	Document each identified issue and provide explicit recommendations.
+                    •	If code changes are suggested, present them in Markdown-formatted code blocks. Include straightforward comments and notes that make it easy for developers to understand and implement the improvements.
+
+                  Response Guidelines:
+                    •	Be both comprehensive and succinct in your final summary.
+                    •	If recommendations are made, show sample improvements using Markdown code blocks. For example:
+                  // Before:
+                  String userInput = request.getParameter('username');
+                  String query = 'SELECT * FROM Users WHERE name = '' + userInput + ''';
+                  // Potentially vulnerable to SQL injection
+
+                  // After:
+                  String userInput = request.getParameter(\"username\");
+                  PreparedStatement stmt = conn.prepareStatement(\"SELECT * FROM Users WHERE name = ?\");
+                  stmt.setString(1, userInput);
+                  // Parameterized query prevents SQL injection
+
+                  Your final response should be thorough, systematic, and leave no obvious security or quality issue unchecked. Provide clear, actionable recommendations to raise the overall standard of the code."
               },
               {
                 "role": "user",
