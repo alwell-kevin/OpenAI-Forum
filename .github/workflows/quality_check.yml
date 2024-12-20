@@ -43,6 +43,10 @@ jobs:
           # We will merge this JSON with diff.json later after we create diff.json
           # So we temporarily store it here. We'll merge after "Get Diff" is performed.
       
+      - name: Display Processed Diff (Debug)
+        # Optional debug step to view the diff content as JSON
+        run: cat original_files_temp.json
+      
       - name: Get Diff
         run: |
           # Extract the diff from origin/main to HEAD.
