@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="X-UA-Compatible" content="ie=edge"/>
+  <title>Landing Page</title>
+  <!-- Bootstrap CSS -->
+  <link 
+    rel="stylesheet" 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" 
+    integrity="sha384-KE6o7DOLRMYv7zzqg0OQbQ8f1+BBtSvEFOopRmRA40+t4DVoAw72X8bwZxT1W5Np" 
+    crossorigin="anonymous"
+  >
+  <style>
+    body, html {
+      height: 100%;
+      margin: 0;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    /* Hero section styling, mirroring the provided design */
+    .hero-section {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #5A2FC2 0%, #6739D1 50%, #5A2FC2 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      text-align: center;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .hero-section h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .hero-section p {
+      font-size: 1.25rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Button styling to match the concept */
+    .hero-section .btn-primary {
+      background-color: #fff;
+      color: #5A2FC2;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      border-radius: 0.5rem;
+    }
+
+    .hero-section .btn-primary:hover {
+      background-color: #e6e6e6;
+      color: #5A2FC2;
+    }
+
+    .status-message {
+      margin-top: 1rem;
+      font-size: 1rem;
+      font-weight: 500;
+      color: #ffffff;
+    }
+
+    /* Additional section (e.g. domain search) to mirror the template */
+    .domain-search {
+      background: #fff;
+      padding: 2rem 1rem;
+      width: 100%;
+      max-width: 600px;
+      margin-top: 2rem;
+      border-radius: 0.5rem;
+    }
+
+    .domain-search h3 {
+      margin-bottom: 1rem;
+      color: #5A2FC2;
+    }
+
+    @media (max-width: 576px) {
+      .hero-section h1 {
+        font-size: 2rem;
+      }
+
+      .hero-section p {
+        font-size: 1.1rem;
+      }
+
+      .hero-section .btn-primary {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="hero-section">
+    <h1>POWERFUL WEB HOSTING</h1>
+    <p>Blazing fast, ultra-reliable web infrastructure at your fingertips. Launch your site effortlessly.</p>
+    <button class="btn btn-primary" id="getStartedBtn">Get Started</button>
+    <p class="status-message" id="status"></p>
+
+    <div class="domain-search">
+      <h3>Connect with a smart agent today!</h3>
+      <form class="row g-3">
+        <div class="col-9">
+          <input type="text" class="form-control" placeholder="example.com">
+        </div>
+        <div class="col-3">
+          <button type="submit" class="btn btn-outline-primary w-100">Search</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Bootstrap JS Bundle -->
+  <script 
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" 
+    integrity="sha384-5MG0uFKxnET5PbTctN1/TobPkXsnWSZtMl3n24DPjtRZ8m/hPTAd/fcvaMADF4UK" 
+    crossorigin="anonymous"
+  ></script>
+
+  <script>
+    async function init() {
+      try {
+        // Fetch ephemeral key from server
+        const tokenResponse = await fetch("http://localhost:3000/session", {
+          mode: 'cors'
+        });
+        const data = await tokenResponse.json();
+        const EPHEMERAL_KEY = data.client_secret.value;
+
+        // Create a peer connection
+        const pc = new RTCPeerConnection();
+
+        // Set up to play remote audio
+        const audioEl = document.createElement("audio");
+        audioEl.autoplay = true;
+        pc.ontrack = e => {
+          audioEl.srcObject = e.streams[0];
+          if (!document.body.contains(audioEl)) {
+            document.body.appendChild(audioEl);
+          }
+        };
+
+        // Add local audio track for mic input
+        const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pc.addTrack(ms.getTracks()[0]);
+
+        // Data channel for server events
+        const dc = pc.createDataChannel("oai-events");
+        dc.addEventListener("message", (e) => {
+          console.log("Server event:", e.data);
+        });
+
+        // Start the session with SDP offer/answer exchange
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const baseUrl = "https://api.openai.com/v1/realtime";
+        const model = "gpt-4o-realtime-preview-2024-12-17";
+        const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+          method: "POST",
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${EPHEMERAL_KEY}`,
+            "Content-Type": "application/sdp"
+          },
+        });
+
+        const answer = {
+          type: "answer",
+          sdp: await sdpResponse.text(),
+        };
+        await pc.setRemoteDescription(answer);
+
+        // If we reach here, session established
+        document.getElementById('status').textContent = "Connection Established!";
+      } catch (error) {
+        console.error("Error during init:", error);
+        document.getElementById('status').textContent = "Failed to establish connection.";
+      }
+    }
+
+    document.getElementById('getStartedBtn').addEventListener('click', () => {
+      document.getElementById('status').textContent = "Initializing connection...";
+      init();
+    });
+  </script>
+</body>
+</html>
