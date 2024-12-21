@@ -40,13 +40,11 @@ jobs:
           sed -i '$ s/,$//' original_files_temp.json
           echo "]}" >> original_files_temp.json
 
-          # We will merge this JSON with diff.json later after we create diff.json
-          # So we temporarily store it here. We'll merge after "Get Diff" is performed.
-      
+          # Temporarily store original files JSON for merging later
+
       - name: Display Processed Diff (Debug)
-        # Optional debug step to view the diff content as JSON
         run: cat original_files_temp.json
-      
+
       - name: Get Diff
         run: |
           # Extract the diff from origin/main to HEAD.
@@ -56,77 +54,42 @@ jobs:
             | grep '^[+-]' \
             | grep -Ev '^(---|\+\+\+)' > code_changes_only.txt
 
-          # Convert these changes into a JSON object so we can safely parse it and insert into our prompt.
+          # Convert these changes into a JSON object
           jq -Rs '{diff: .}' code_changes_only.txt > diff.json
 
-          # Merge the newly created diff.json with our original_files_temp.json to consolidate them.
+          # Merge diff.json with original_files_temp.json to consolidate data
           if [ -f original_files_temp.json ]; then
             jq -s '.[0] * .[1]' diff.json original_files_temp.json > combined.json
             mv combined.json diff.json
           fi
 
       - name: Display Processed Diff (Debug)
-        # Optional debug step to view the diff content as JSON
         run: cat diff.json
 
       - name: Analyze with OpenAI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          # Extract the diff from diff.json
+          set -e  # Stop execution on any error
+
+          # Extract the diff and original files from diff.json
           DIFF_CONTENT=$(jq -r '.diff' diff.json)
-          ORIGINAL_FILES=$(jq -r '.["original files"]' diff.json)
-
-          # Construct the prompt to instruct the model
+          ORIGINAL_FILES=$(jq -r '."original files"' diff.json)
+    
+          # Construct the prompt for the model
           PROMPT="Please review the following code changes for any obvious quality or security issues. Provide a brief report:\n\nDIFF:\n${DIFF_CONTENT}\n\nORIGINAL FILES:\n${ORIGINAL_FILES}"
-
-          # Construct the request body using jq to ensure valid JSON formatting
-          jq -n --arg prompt "$PROMPT" '{
+    
+          # Multi-line system message with escaped newlines
+          SYSTEM_CONTENT="You are an expert code reviewer specializing in security, quality, and adherence to best practices. Your goal is to methodically analyze the provided code to ensure it meets the highest standards. Approach the review in a structured, step-by-step manner:\n1. Code Quality & Standards:\n• Validate that the code follows established coding standards, style guides, and naming conventions.\n• Check for consistent formatting, clear variable and function names, logical code organization, and adherence to language-specific best practices.\n2. Security & Vulnerability Analysis:\n• Inspect each code block for common vulnerabilities, including but not limited to:\n• SQL injection\n• Cross-Site Scripting (XSS)\n• Command injection\n• Insecure cryptographic operations\n• Verify robust input validation, proper output encoding, principle of least privilege in permissions, and the safe handling of sensitive data.\n• Identify any libraries or functions known to be insecure, and recommend safer alternatives.\n3. Fault Tolerance & Error Handling:\n• Confirm the code gracefully handles errors, exceptions, and unexpected inputs.\n• Check if proper try/catch blocks or equivalent mechanisms are in place.\n• Ensure that sensitive error details are not exposed to end users.\n4. Performance & Resource Management:\n• Evaluate the code for potential performance bottlenecks, unnecessary computations, or inefficient resource usage.\n• Suggest improvements to enhance efficiency without compromising readability or security.\n5. Step-by-Step Validation:\n• Examine the code incrementally, line by line or function by function.\n• Document each identified issue and provide explicit recommendations.\n• If code changes are suggested, present them in Markdown-formatted code blocks. Include straightforward comments and notes that make it easy for developers to understand and implement the improvements.\n\nResponse Guidelines:\n• Be both comprehensive and succinct in your final summary.\n• If recommendations are made, show sample improvements using Markdown code blocks. For example:\n// Before:\nString userInput = request.getParameter('username');\nString query = 'SELECT * FROM Users WHERE name = '' + userInput + ''';\n// Potentially vulnerable to SQL injection\n\n// After:\nString userInput = request.getParameter(\"username\");\nPreparedStatement stmt = conn.prepareStatement(\"SELECT * FROM Users WHERE name = ?\");\nst.setString(1, userInput);\n// Parameterized query prevents SQL injection\n\nYour final response should be thorough, systematic, and leave no obvious security or quality issue unchecked. Provide clear, actionable recommendations to raise the overall standard of the code."
+    
+          # Create the request.json with the system and user messages
+          jq -n --arg prompt "$PROMPT" --arg system_content "$SYSTEM_CONTENT" '{
             "model": "o1",
             "reasoning_effort": "high",
             "messages": [
               {
                 "role": "system",
-                "content": "
-                  You are an expert code reviewer specializing in security, quality, and adherence to best practices. Your goal is to methodically analyze the provided code to ensure it meets the highest standards. Approach the review in a structured, step-by-step manner:
-                    1. Code Quality & Standards:
-                    • Validate that the code follows established coding standards, style guides, and naming conventions.
-                    • Check for consistent formatting, clear variable and function names, logical code organization, and adherence to language-specific best practices.
-                    2. Security & Vulnerability Analysis:
-                    • Inspect each code block for common vulnerabilities, including but not limited to:
-                    • SQL injection
-                    • Cross-Site Scripting (XSS)
-                    • Command injection
-                    • Insecure cryptographic operations
-                    • Verify robust input validation, proper output encoding, principle of least privilege in permissions, and the safe handling of sensitive data.
-                    • Identify any libraries or functions known to be insecure, and recommend safer alternatives.
-                    3. Fault Tolerance & Error Handling:
-                    • Confirm the code gracefully handles errors, exceptions, and unexpected inputs.
-                    • Check if proper try/catch blocks or equivalent mechanisms are in place.
-                    • Ensure that sensitive error details are not exposed to end users.
-                    4. Performance & Resource Management:
-                    • Evaluate the code for potential performance bottlenecks, unnecessary computations, or inefficient resource usage.
-                    • Suggest improvements to enhance efficiency without compromising readability or security.
-                    5. Step-by-Step Validation:
-                    • Examine the code incrementally, line by line or function by function.
-                    • Document each identified issue and provide explicit recommendations.
-                    • If code changes are suggested, present them in Markdown-formatted code blocks. Include straightforward comments and notes that make it easy for developers to understand and implement the improvements.
-
-                  Response Guidelines:
-                    • Be both comprehensive and succinct in your final summary.
-                    • If recommendations are made, show sample improvements using Markdown code blocks. For example:
-                  // Before:
-                  String userInput = request.getParameter('username');
-                  String query = 'SELECT * FROM Users WHERE name = '' + userInput + ''';
-                  // Potentially vulnerable to SQL injection
-
-                  // After:
-                  String userInput = request.getParameter(\"username\");
-                  PreparedStatement stmt = conn.prepareStatement(\"SELECT * FROM Users WHERE name = ?\");
-                  stmt.setString(1, userInput);
-                  // Parameterized query prevents SQL injection
-
-                  Your final response should be thorough, systematic, and leave no obvious security or quality issue unchecked. Provide clear, actionable recommendations to raise the overall standard of the code."
+                "content": $system_content
               },
               {
                 "role": "user",
@@ -134,31 +97,34 @@ jobs:
               }
             ]
           }' > request.json
-
+    
           # Debug: print the request for verification
           cat request.json
-
+    
           # Send request to OpenAI
           curl -sS https://api.openai.com/v1/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
             -d @request.json > response.json
+    
+          # Check if response.json was created and contains valid data
+          if [ ! -s response.json ]; then
+            echo "No response from OpenAI API"
+            exit 1
+          fi
 
       - name: Debug OpenAI Response
-        # Check the raw response to ensure proper parsing
         run: cat response.json
 
       - name: Extract Review Message
         id: extract_message
         run: |
-          # Extract the assistant's response content from the JSON
           ASSISTANT_MSG=$(jq -r '.choices[0].message.content' response.json)
           if [ -z "$ASSISTANT_MSG" ] || [ "$ASSISTANT_MSG" = "null" ]; then
             echo "No valid assistant message found."
             exit 1
           fi
 
-          # Use GitHub Actions' multiline output syntax to handle complex or multi-line output safely.
           {
             echo "message<<EOF"
             echo "$ASSISTANT_MSG"
@@ -170,7 +136,6 @@ jobs:
           COMMENT: ${{ steps.extract_message.outputs.message }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Post the assistant's review as a comment on the PR
           gh api \
             repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -f body="$COMMENT"
